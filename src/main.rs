@@ -5,6 +5,7 @@ use futures::StreamExt;
 use libp2p::{
     identity, kad::{record::store::{MemoryStore, RecordStore}, Kademlia, KademliaConfig, Quorum, Record, RecordKey},
     swarm::{Swarm, SwarmEvent},
+    tcp, noise, yamux, Transport,
     PeerId,
 };
 use std::error::Error;
@@ -17,22 +18,20 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let local_peer_id = PeerId::from(local_key.public());
     println!("Local peer id: {:?}", local_peer_id);
 
-    // Create a transport
-    let transport = libp2p::tokio_development_transport(local_key)?;
-
     // Create a Kademlia behavior
     let store = MemoryStore::new(local_peer_id);
     let mut kad_config = KademliaConfig::default();
     kad_config.set_query_timeout(Duration::from_secs(10));
     let kademlia = Kademlia::with_config(local_peer_id, store, kad_config);
 
-    // Create a Swarm to manage peers and events
-    let mut swarm = Swarm::new(
-        transport,
-        kademlia,
-        local_peer_id,
-        libp2p::swarm::Config::with_tokio_executor(),
-    );
+    // Create a Swarm using SwarmBuilder
+    let mut swarm = libp2p::SwarmBuilder::with_new_identity()
+        .with_tokio()
+        .with_tcp(tcp::Config::default(), noise::Config::new, yamux::Config::default)
+        .expect("Failed to create TCP transport")
+        .with_behaviour(|_| kademlia)
+        .expect("Failed to create behavior")
+        .build();
 
     // Listen on all interfaces and a random port
     swarm.listen_on("/ip4/0.0.0.0/tcp/0".parse()?)?;
