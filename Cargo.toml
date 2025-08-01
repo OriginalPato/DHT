@@ -12,8 +12,8 @@ libp2p = { version = "0.52", features = [
     "noise",          # Encrypted peer-to-peer communication
     "websocket",      # Optional, useful for browser-based integrations
     "yamux",          # Stream multiplexer
-    "async-std",      # Executor compatibility
+    "tokio",          # Executor compatibility
     "macros"
 ] }
-async-std = { version = "1.12", features = ["attributes"] }
+tokio = { version = "1", features = ["full"] }
 futures = "0.3"

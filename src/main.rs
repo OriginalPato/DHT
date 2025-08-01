@@ -1,16 +1,16 @@
 //! A minimal DHT-based DNS replacement in Rust using libp2p.
 
-use async_std::{io, task};
-use futures::{prelude::*, select};
+use tokio::{io::{self, AsyncBufReadExt}, sync::mpsc};
+use futures::StreamExt;
 use libp2p::{
     identity, kad::{record::store::{MemoryStore, RecordStore}, Kademlia, KademliaConfig, Quorum, Record, RecordKey},
     swarm::{Swarm, SwarmEvent},
-    PeerId, development_transport,
+    PeerId,
 };
 use std::error::Error;
 use std::time::Duration;
 
-#[async_std::main]
+#[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     // Create a random PeerId
     let local_key = identity::Keypair::generate_ed25519();
@@ -18,7 +18,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     println!("Local peer id: {:?}", local_peer_id);
 
     // Create a transport
-    let transport = development_transport(local_key).await?;
+    let transport = libp2p::tokio_development_transport(local_key)?;
 
     // Create a Kademlia behavior
     let store = MemoryStore::new(local_peer_id);
@@ -31,7 +31,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         transport,
         kademlia,
         local_peer_id,
-        libp2p::swarm::Config::with_async_std_executor(),
+        libp2p::swarm::Config::with_tokio_executor(),
     );
 
     // Listen on all interfaces and a random port
@@ -56,14 +56,30 @@ async fn main() -> Result<(), Box<dyn Error>> {
     println!("DHT node is running. Enter commands or wait for network events...");
     println!("Type 'exit' to quit");
     
-    // Create a stream for reading user input
-    let mut stdin = io::BufReader::new(io::stdin()).lines().fuse();
+    // Create channels for user input
+    let (tx, mut rx) = mpsc::channel::<String>(100);
+    
+    // Spawn a task to read from stdin
+    tokio::spawn(async move {
+        let mut reader = io::BufReader::new(io::stdin());
+        let mut line = String::new();
+        
+        loop {
+            line.clear();
+            if reader.read_line(&mut line).await.is_ok() {
+                if let Err(_) = tx.send(line.trim().to_string()).await {
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+    });
     
     // Main event loop
     loop {
-        select! {
-            line = stdin.select_next_some() => {
-                let line = line?;
+        tokio::select! {
+            Some(line) = rx.recv() => {
                 let args: Vec<String> = line.split_whitespace().map(|s| s.to_string()).collect();
                 
                 if !args.is_empty() {
